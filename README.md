@@ -36,6 +36,7 @@ The proxy's root path stands for `upstream`, so `http://127.0.0.1:18790/chat/com
 | `limits.windowMs` | Length of the token window |
 | `upstreamRetry.maxWaitMs` | Total backoff one request spends on refusals that no key change avoids before the client receives the refusal |
 | `upstreamRetry.initialDelayMs` / `maxDelayMs` | First and largest backoff delay; delays double |
+| `attemptLog` | JSON Lines file receiving one line per upstream attempt; the bundle writes `$DSH_HOME/logs/llm-key-pool.jsonl`, and omission records nothing |
 
 Every credential must resolve when the plugin loads, and the port must be free; otherwise loading fails with the credential name or the listen error.
 
@@ -44,6 +45,8 @@ Every credential must resolve when the plugin loads, and the port must be free; 
 Each request waits in arrival order until some key has passed its request-rate gap and has window usage plus in-flight estimates under its token budget, then goes to the least recently started such key. The provider admits any single request while a key's budget is not yet exhausted, so one request may exceed the budget; the key then rests until that usage leaves the window. Usage comes from the answer's `total_tokens` (Chat Completions final chunk, Responses `response.completed`, or the JSON body); an answer without usage, including an interrupted one, is charged its request-size estimate.
 
 A 429 with SenseNova error code `8` (`rps exhausted` or `tpm exhausted`) marks that key exhausted and resends at once on another key. Any other 429 is an upstream refusal that no key change avoids: the proxy backs off and resends until `maxWaitMs` would be exceeded, then returns the refusal so the client's own retry policy applies. Internal resends happen before any answer byte reaches the client, so they are invisible to the session and are not recorded as `llm/retry` events; the plugin logs each attempt (`info` for refusals, `debug` for answers).
+
+Each `attemptLog` line holds `at`, `key` (the credential name, never its value), `status`, `outcome` (`answered`, `key-exhausted`, or `upstream-refused`), the provider error `code`, `queuedMs` spent waiting for a key, `headersMs` until the upstream headers, charged `tokens`, the request `path`, and the upstream `requestId`. Request and answer bodies are not recorded. The file only grows; remove or rotate it yourself.
 
 The proxy listens on `127.0.0.1` only, requires the local token, and refuses requests whose `Host` is not the loopback address, so a web page cannot spend the keys through DNS rebinding.
 

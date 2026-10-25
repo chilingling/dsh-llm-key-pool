@@ -27,3 +27,5 @@
           maxWaitMs: 60000
           initialDelayMs: 1000
           maxDelayMs: 8000
+        # One JSON line per upstream attempt; the file only grows.
+        attemptLog: !!js "(process.env.DSH_HOME || process.env.HOME + '/.dsh') + '/logs/llm-key-pool.jsonl'"

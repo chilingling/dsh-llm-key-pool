@@ -9,15 +9,18 @@
  * @module dsh-llm-key-pool
  */
 
+import { createWriteStream, type WriteStream } from 'node:fs'
+import { mkdir } from 'node:fs/promises'
+import { dirname } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import { credentialRef, type CredentialRef } from '@deepseek-ai/dsh-credentials'
 import z from '@deepseek-ai/schemastery'
 import { KeyPool, type KeyLimits } from './pool.ts'
-import { startProxy, type UpstreamRetry } from './proxy.ts'
+import { startProxy, type ProxyAttempt, type UpstreamRetry } from './proxy.ts'
 
 export type { KeyLease, KeyLimits } from './pool.ts'
 export { KeyPool } from './pool.ts'
-export type { KeyPoolProxy, ProxyOptions, UpstreamRetry } from './proxy.ts'
+export type { KeyPoolProxy, ProxyAttempt, ProxyOptions, UpstreamRetry } from './proxy.ts'
 export { startProxy } from './proxy.ts'
 
 export const name = 'llm-key-pool'
@@ -37,6 +40,12 @@ export interface Config {
   limits: KeyLimits
   /** Internal backoff for upstream refusals that no key change avoids. */
   upstreamRetry: UpstreamRetry
+  /**
+   * JSON Lines file that receives one line per upstream attempt, naming the
+   * key by its credential reference; omission records nothing. The file only
+   * grows: remove or rotate it yourself.
+   */
+  attemptLog?: string
 }
 
 const positive = (description: string): z<number> => z.number().min(Number.MIN_VALUE).required().description(description)
@@ -60,6 +69,8 @@ export const Config: z<Config> = z.object({
     initialDelayMs: positive('First backoff delay; each later delay doubles.'),
     maxDelayMs: positive('Largest single backoff delay.'),
   }).required(),
+  attemptLog: z.string()
+    .description('JSON Lines file receiving one line per upstream attempt (key credential name, outcome, timings, tokens, request id); omit to record nothing.'),
 })
 
 /**
@@ -85,6 +96,16 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
 
   const pool = new KeyPool(keyRefs.length, config.limits)
   await ctx.effect(async () => {
+    let attempts: WriteStream | undefined
+    if (config.attemptLog !== undefined) {
+      await mkdir(dirname(config.attemptLog), { recursive: true })
+      attempts = createWriteStream(config.attemptLog, { flags: 'a', mode: 0o600 })
+      attempts.on('error', (error) => { ctx.logger.warn('attempt log %s: %s', config.attemptLog, error.message) })
+    }
+    const record = (attempt: ProxyAttempt): void => {
+      const { key, ...rest } = attempt
+      attempts?.write(JSON.stringify({ at: new Date().toISOString(), key: keyRefs[key], ...rest }) + '\n')
+    }
     const proxy = await startProxy({
       port: config.port,
       upstream,
@@ -94,6 +115,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
       pool,
       upstreamRetry: config.upstreamRetry,
       log: (attempt) => {
+        record(attempt)
         if (attempt.outcome === 'answered') {
           ctx.logger.debug('key %d answered %d after %dms: %d tokens', attempt.key + 1, attempt.status, attempt.headersMs, attempt.tokens)
         } else {
@@ -102,6 +124,9 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
       },
     })
     ctx.logger.info('proxying %s through http://127.0.0.1:%d with %d keys', upstream, proxy.port, keyRefs.length)
-    return () => proxy.close()
+    return async () => {
+      await proxy.close()
+      await new Promise<void>(resolve => attempts === undefined ? resolve() : attempts.end(resolve))
+    }
   }, 'llm-key-pool.listen')
 }

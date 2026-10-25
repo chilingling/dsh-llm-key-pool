@@ -1,4 +1,4 @@
-import { chmod, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { chmod, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
@@ -44,12 +44,12 @@ async function echoUpstream(): Promise<string> {
   return `http://127.0.0.1:${(server.address() as AddressInfo).port}/v1`
 }
 
-async function boot(port: number, upstream: string, refs: Record<string, string>): Promise<Context> {
-  root = await mkdtemp(join(tmpdir(), 'dsh-llm-key-pool-loader-'))
-  const credentials = join(root, '.credentials.yaml')
+async function boot(port: number, upstream: string, refs: Record<string, string>, extraConfig: readonly string[] = []): Promise<Context> {
+  const dir = (root ??= await mkdtemp(join(tmpdir(), 'dsh-llm-key-pool-loader-')))
+  const credentials = join(dir, '.credentials.yaml')
   await writeFile(credentials, ['version: 1', 'refs:', ...Object.entries(refs).map(([name, value]) => `  ${name}: ${value}`), ''].join('\n'))
   await chmod(credentials, 0o600)
-  const configPath = join(root, 'cordis.yml')
+  const configPath = join(dir, 'cordis.yml')
   await writeFile(configPath, [
     "- name: '@deepseek-ai/dsh-credentials-local'",
     '  config:',
@@ -63,11 +63,12 @@ async function boot(port: number, upstream: string, refs: Record<string, string>
     '    keys: [POOL_KEY_1, POOL_KEY_2]',
     '    limits: { requestsPerSecond: 1, tokensPerMinute: 60000, windowMs: 60000 }',
     '    upstreamRetry: { maxWaitMs: 1000, initialDelayMs: 10, maxDelayMs: 50 }',
+    ...extraConfig.map(line => `    ${line}`),
     '',
   ].join('\n'))
 
   const ctx = new Context()
-  ctx.baseUrl = pathToFileURL(root).href + '/'
+  ctx.baseUrl = pathToFileURL(dir).href + '/'
   await ctx.plugin(Loader)
   ctx.loader.builtins.include = Include
   // Without Node's internal loader the Loader imports each bare name through Vitest, which
@@ -98,5 +99,24 @@ describe('dsh-llm-key-pool composition', () => {
     await context.fiber.dispose()
     context = undefined
     await expect(call(port, 'local-token')).rejects.toThrow()
+  })
+
+  it('appends one JSON line per upstream attempt to the configured attempt log', async () => {
+    const dir = (root = await mkdtemp(join(tmpdir(), 'dsh-llm-key-pool-loader-')))
+    const attemptLog = join(dir, 'logs', 'attempts.jsonl')
+    const port = await freePort()
+    context = await boot(port, await echoUpstream(), { POOL_TOKEN: 'local-token', POOL_KEY_1: 'sk-one', POOL_KEY_2: 'sk-two' }, [`attemptLog: ${JSON.stringify(attemptLog)}`])
+
+    await Promise.all([call(port, 'local-token'), call(port, 'local-token')].map(async res => (await res).text()))
+    await context.fiber.dispose()
+    context = undefined
+
+    const lines = (await readFile(attemptLog, 'utf8')).trim().split('\n').map(line => JSON.parse(line) as Record<string, unknown>)
+    expect(lines.map(line => line['key']).sort()).toEqual(['POOL_KEY_1', 'POOL_KEY_2'])
+    for (const line of lines) {
+      expect(line).toMatchObject({ outcome: 'answered', status: 200, path: '/chat/completions', tokens: 1 })
+      expect(Number.isNaN(Date.parse(line['at'] as string))).toBe(false)
+    }
+    expect(JSON.stringify(lines)).not.toContain('sk-')
   })
 })

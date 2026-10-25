@@ -45,8 +45,14 @@ export interface ProxyAttempt {
   code?: string
   /** Usage charged to the key for an answer. */
   tokens?: number
+  /** Milliseconds the request waited for a key before this attempt. */
+  queuedMs: number
   /** Milliseconds from sending the request to receiving the upstream headers. */
   headersMs: number
+  /** Request path below the upstream base URL. */
+  path: string
+  /** Upstream `x-request-id`, which the provider's support can trace. */
+  requestId?: string
 }
 
 /** Everything {@link startProxy} needs; values are resolved per request. */
@@ -124,6 +130,7 @@ async function handle(options: ProxyOptions, req: IncomingMessage, res: ServerRe
   const estimate = Math.ceil(body.length / 4)
   let waitedMs = 0
   for (let refusals = 0; ; ) {
+    const queuedAt = Date.now()
     const lease = await options.pool.acquire(estimate, signal)
     const sentAt = Date.now()
     let upstream: Response
@@ -138,13 +145,18 @@ async function handle(options: ProxyOptions, req: IncomingMessage, res: ServerRe
       lease.release()
       throw error
     }
-    const headersMs = Date.now() - sentAt
+    const requestId = upstream.headers.get('x-request-id')
+    const base = {
+      key: lease.key, status: upstream.status, queuedMs: sentAt - queuedAt, headersMs: Date.now() - sentAt, path: req.url ?? '/',
+      ...requestId === null ? {} : { requestId },
+    }
     if (upstream.status === 429) {
       const text = await upstream.text()
       const error = providerError(text)
       const limit = exhaustedKeyLimit(error)
       options.log?.({
-        key: lease.key, status: 429, outcome: limit === undefined ? 'upstream-refused' : 'key-exhausted', headersMs,
+        ...base,
+        outcome: limit === undefined ? 'upstream-refused' : 'key-exhausted',
         ...error?.code === undefined ? {} : { code: error.code },
       })
       if (limit !== undefined) {
@@ -179,7 +191,7 @@ async function handle(options: ProxyOptions, req: IncomingMessage, res: ServerRe
       // An interrupted answer still spent provider tokens; charge the estimate when no usage arrived.
       const tokens = usage.finish() ?? estimate
       lease.settle(tokens)
-      options.log?.({ key: lease.key, status: upstream.status, outcome: 'answered', tokens, headersMs })
+      options.log?.({ ...base, outcome: 'answered', tokens })
     }
     return
   }

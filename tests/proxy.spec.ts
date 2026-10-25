@@ -148,6 +148,28 @@ describe('key-pool proxy', () => {
     ])
   })
 
+  it('reports how long an attempt waited for a key, its path, and the upstream request id', async () => {
+    const up = await upstream((_received, res) => {
+      res.writeHead(200, { 'Content-Type': 'application/json', 'X-Request-Id': `req-${up.received.length}` })
+      res.end(JSON.stringify({ usage: { total_tokens: 1 } }))
+    })
+    const attempts: { queuedMs: number }[] = []
+    const target = await proxy(up.url, {
+      key: () => Promise.resolve('sk-only'),
+      pool: new KeyPool(1, { requestsPerSecond: 2, tokensPerMinute: 60_000, windowMs: 60_000 }),
+      log: attempt => attempts.push(attempt),
+    })
+    await (await post(target, '/chat/completions', {})).text()
+    await (await post(target, '/chat/completions', {})).text()
+    expect(attempts).toMatchObject([
+      { path: '/chat/completions', requestId: 'req-1' },
+      { path: '/chat/completions', requestId: 'req-2' },
+    ])
+    expect(attempts[0]!.queuedMs).toBeLessThan(100)
+    // The second start waits out the 500 ms request-rate gap of the only key.
+    expect(attempts[1]!.queuedMs).toBeGreaterThanOrEqual(400)
+  })
+
   it('hands the upstream refusal to the client once internal backoff would exceed its budget', async () => {
     const up = await upstream((_received, res) => json(res, 429, ENDPOINT_LIMITED))
     const target = await proxy(up.url, { upstreamRetry: { maxWaitMs: 100, initialDelayMs: 20, maxDelayMs: 40 } })
