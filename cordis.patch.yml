@@ -1,0 +1,29 @@
+# Bundle layer of dsh-llm-key-pool: mounts the loopback proxy for SenseNova.
+# The provider route stays in the profile's llm-pi-ai config, with
+# baseURL http://127.0.0.1:18790 and apiKeyEnv SENSENOVA_POOL_TOKEN.
+# Limits are SenseNova's measured per-key limits (2026-10-25): about one
+# request start per second and 60k tokens per 60-second window, cached input
+# included. Override any field with an `- id: llm-key-pool` profile patch row.
+- insert:
+    - id: llm-key-pool
+      name: dsh-llm-key-pool
+      config:
+        port: 18790
+        upstream: https://token.sensenova.cn/v1
+        tokenEnv: SENSENOVA_POOL_TOKEN
+        keys:
+          - SENSENOVA_API_KEY_1
+          - SENSENOVA_API_KEY_2
+          - SENSENOVA_API_KEY_3
+          - SENSENOVA_API_KEY_4
+          - SENSENOVA_API_KEY_5
+          - SENSENOVA_API_KEY_6
+          - SENSENOVA_API_KEY_7
+        limits:
+          requestsPerSecond: 1
+          tokensPerMinute: 60000
+          windowMs: 60000
+        upstreamRetry:
+          maxWaitMs: 60000
+          initialDelayMs: 1000
+          maxDelayMs: 8000
