@@ -2,7 +2,30 @@
   "name": "dsh-llm-key-pool",
   "description": "Loopback model-API proxy that schedules requests across several API keys within per-key rate limits, for DeepSeek Harness",
   "version": "0.1.0",
-  "private": true,
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "dsh-plugin",
+    "dsh-bundle",
+    "cordis",
+    "cordis-plugin",
+    "llm",
+    "api-key",
+    "key-pool",
+    "rate-limit",
+    "proxy",
+    "openai-compatible",
+    "sensenova"
+  ],
+  "author": "chilingling",
+  "homepage": "https://github.com/chilingling/dsh-llm-key-pool#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/chilingling/dsh-llm-key-pool.git"
+  },
+  "bugs": {
+    "url": "https://github.com/chilingling/dsh-llm-key-pool/issues"
+  },
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
@@ -24,14 +47,14 @@
       "patch": "./cordis.patch.yml"
     }
   },
-  "packageManager": "pnpm@10.34.5",
   "engines": {
     "node": "^22.19.0 || >=24.0.0"
   },
   "scripts": {
     "build": "rm -rf lib && tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json",
-    "test": "vitest run"
+    "test": "vitest run",
+    "prepare": "pnpm run build"
   },
   "license": "MIT",
   "peerDependencies": {
