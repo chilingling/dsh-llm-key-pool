@@ -3,7 +3,8 @@
 # baseURL http://127.0.0.1:18790 and apiKeyEnv SENSENOVA_POOL_TOKEN.
 # Limits are SenseNova's measured per-key limits (2026-10-25): about one
 # request start per second and 60k tokens per 60-second window, cached input
-# included. Override any field with an `- id: llm-key-pool` profile patch row.
+# included. An `- id: llm-key-pool` row in a later patch layer replaces this
+# whole config, so it restates every field even when only `keys` changes.
 - insert:
     - id: llm-key-pool
       name: dsh-llm-key-pool
