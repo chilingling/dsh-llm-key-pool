@@ -43,6 +43,8 @@ export interface ProxyAttempt {
   outcome: 'answered' | 'key-exhausted' | 'upstream-refused'
   /** Provider error code of a refusal. */
   code?: string
+  /** Provider error message of a refusal; with `code` it decides the outcome. */
+  message?: string
   /** Usage charged to the key for an answer. */
   tokens?: number
   /** Milliseconds the request waited for a key before this attempt. */
@@ -158,6 +160,7 @@ async function handle(options: ProxyOptions, req: IncomingMessage, res: ServerRe
         ...base,
         outcome: limit === undefined ? 'upstream-refused' : 'key-exhausted',
         ...error?.code === undefined ? {} : { code: error.code },
+        ...error?.message === undefined ? {} : { message: error.message },
       })
       if (limit !== undefined) {
         lease.reject(limit)
@@ -215,7 +218,10 @@ function providerError(text: string): { code?: string; message?: string } | unde
 /**
  * The per-key limit a 429 error reports as exhausted, or `undefined` for a
  * refusal another key cannot avoid. SenseNova reports per-key limits with
- * error code `8` and the messages `rps exhausted` and `tpm exhausted`.
+ * error code `8` and the messages `rps exhausted` and `tpm exhausted`. Code `8`
+ * also carries `inference exceeds tpm/rpm limit`, the message of the shared
+ * endpoint limit: its refusal rate does not follow one key's recent requests or
+ * token usage, so it backs off rather than switching keys.
  */
 function exhaustedKeyLimit(error: { code?: string; message?: string } | undefined): 'rps' | 'tpm' | undefined {
   if (error?.code !== '8' || error.message === undefined) return undefined

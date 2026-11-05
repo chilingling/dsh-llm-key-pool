@@ -80,9 +80,9 @@ pnpm dsh plugin --profile web add /path/to/dsh-llm-key-pool   # 在 deepseek-har
 
 每个请求按到达顺序排队，直到某个 key 满足两个条件：距上次开始请求已超过请求速率间隔；窗口内已用量加上进行中请求的估算量低于 token 额度。请求随后分配给满足条件的 key 中最久没有开始请求的那个。provider 在 key 额度未用完时会接受任意单个请求，因此单个请求可能超出额度；此后该 key 暂停使用，直到这部分用量移出窗口。用量取自响应中的 `total_tokens`（Chat Completions 的最后一个 chunk、Responses 的 `response.completed` 事件，或 JSON 响应体）。没有返回用量的响应，包括中途断开的响应，按请求大小的估算值计入。
 
-SenseNova 返回错误码 `8`（`rps exhausted` 或 `tpm exhausted`）的 429 时，代理把该 key 标记为额度用尽，并立即换另一个 key 重发。其他 429 属于换 key 也无法避免的上游拒绝：代理退避后重发，直到下一次退避会超过 `maxWaitMs`，然后把拒绝返回给客户端，由客户端自己的重试策略处理。内部重发都发生在任何响应字节到达客户端之前，因此会话看不到这些重发，也不会产生 `llm/retry` 事件。插件会记录每次尝试的日志（拒绝为 `info` 级别，正常响应为 `debug` 级别）。
+SenseNova 返回错误码 `8` 且 message 为 `rps exhausted` 或 `tpm exhausted` 的 429 时，代理把该 key 标记为额度用尽，并立即换另一个 key 重发。其他 429 属于换 key 也无法避免的上游拒绝，其中包括错误码 `8` 且 message 为 `inference exceeds tpm/rpm limit` 的拒绝，该 message 来自共享 endpoint 的限流：代理退避后重发，直到下一次退避会超过 `maxWaitMs`，然后把拒绝返回给客户端，由客户端自己的重试策略处理。内部重发都发生在任何响应字节到达客户端之前，因此会话看不到这些重发，也不会产生 `llm/retry` 事件。插件会记录每次尝试的日志（拒绝为 `info` 级别，正常响应为 `debug` 级别）。
 
-`attemptLog` 的每一行包含：`at`、`key`（凭据名，不含凭据值）、`status`、`outcome`（`answered`、`key-exhausted` 或 `upstream-refused`）、provider 错误码 `code`、等待 key 的时长 `queuedMs`、收到上游响应头的耗时 `headersMs`、计入的 `tokens`、请求路径 `path`，以及上游的 `requestId`。插件不记录请求体和响应体。该文件只会追加，需要自行删除或轮转。
+`attemptLog` 的每一行包含：`at`、`key`（凭据名，不含凭据值）、`status`、`outcome`（`answered`、`key-exhausted` 或 `upstream-refused`）、拒绝时的 provider 错误码 `code` 和错误信息 `message`、等待 key 的时长 `queuedMs`、收到上游响应头的耗时 `headersMs`、计入的 `tokens`、请求路径 `path`，以及上游的 `requestId`。插件不记录请求体和响应体。该文件只会追加，需要自行删除或轮转。
 
 代理只监听 `127.0.0.1`，要求客户端提供本地 token，并拒绝 `Host` 不是回环地址的请求，因此网页无法通过 DNS rebinding 使用这些 key。
 

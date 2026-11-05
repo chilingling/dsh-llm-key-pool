@@ -130,7 +130,23 @@ describe('key-pool proxy', () => {
     expect(up.received).toHaveLength(3)
   })
 
-  it('reports every upstream attempt with its key, outcome, and provider error code', async () => {
+  it('backs off instead of switching keys when error code 8 names no per-key limit', async () => {
+    let calls = 0
+    const up = await upstream((_received, res) => {
+      calls++
+      if (calls === 1) json(res, 429, { error: { message: 'inference exceeds tpm/rpm limit', type: 'rate_limit_error', code: '8' } })
+      else json(res, 200, { usage: { total_tokens: 3 } })
+    })
+    const attempts: unknown[] = []
+    const target = await proxy(up.url, { log: attempt => attempts.push(attempt) })
+    await (await post(target, '/chat/completions', {})).text()
+    expect(attempts).toMatchObject([
+      { status: 429, outcome: 'upstream-refused', code: '8' },
+      { status: 200, outcome: 'answered' },
+    ])
+  })
+
+  it('reports every upstream attempt with its key, outcome, and provider error code and message', async () => {
     let calls = 0
     const up = await upstream((received, res) => {
       calls++
@@ -142,8 +158,8 @@ describe('key-pool proxy', () => {
     const target = await proxy(up.url, { log: attempt => attempts.push(attempt) })
     await (await post(target, '/chat/completions', {})).text()
     expect(attempts).toMatchObject([
-      { key: 0, status: 429, outcome: 'key-exhausted', code: '8' },
-      { key: 1, status: 429, outcome: 'upstream-refused', code: 'RateLimitExceeded.EndpointRPMExceeded' },
+      { key: 0, status: 429, outcome: 'key-exhausted', code: '8', message: 'tpm exhausted' },
+      { key: 1, status: 429, outcome: 'upstream-refused', code: 'RateLimitExceeded.EndpointRPMExceeded', message: 'inference exceeds tpm/rpm limit' },
       { key: 1, status: 200, outcome: 'answered', tokens: 3 },
     ])
   })
