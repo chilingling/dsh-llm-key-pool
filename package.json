@@ -1,7 +1,7 @@
 {
   "name": "dsh-llm-key-pool",
   "description": "Loopback model-API proxy that schedules requests across several API keys within per-key rate limits, for DeepSeek Harness",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "keywords": [
     "deepseek-harness",
     "dsh",

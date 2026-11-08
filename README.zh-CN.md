@@ -9,10 +9,10 @@ DeepSeek Harness 的多 key 调度插件。插件在 OpenAI 兼容的模型 API 
 从 GitHub 安装发布版本：
 
 ```sh
-dsh plugin --profile web add github:chilingling/dsh-llm-key-pool#v0.1.0
+dsh plugin --profile web add github:chilingling/dsh-llm-key-pool#v0.2.0
 ```
 
-0.1.0 版本要求 DeepSeek Harness 0.2.2-alpha.2 或之后的 0.2 版本。
+0.2.0 版本要求 DeepSeek Harness 0.2.2-rc.1 或之后的 0.2 版本。使用 DeepSeek Harness 0.2.2-alpha.2 或 0.2.2-alpha.3 时，请安装 `#v0.1.0`。
 
 安装时，pnpm 通过 `prepare` 脚本构建插件。pnpm 默认会拦截这个脚本，因此第一次安装会失败。按 pnpm 打印的提示，把它给出的 key 加入 profile 目录下 `pnpm-workspace.yaml` 的 `allowBuilds`，然后重新执行命令。也可以在 Web 的**插件**页面点击**允许这些脚本并重试**。
 
